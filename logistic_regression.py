@@ -6,7 +6,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torchvision import datasets, models, transforms
-
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from sklearn.manifold import TSNE
 from modules.transformations import TransformsSimCLR
 from process_features import get_features, create_data_loaders_from_arrays
 
@@ -158,6 +160,20 @@ if __name__ == "__main__":
 
     print(f"Final test performance: " + "\t".join([f"{k}: {np.array(v).mean()}" for k, v in metrics.items()]))
 
+        # Generate t-SNE plot for test data representations
+    print("Generating t-SNE visualization...")
+    n_samples = 5000  # Number of samples to visualize
+    test_features_subset = test_X[:n_samples]
+    test_labels_subset = test_y[:n_samples]
 
+    # Perform t-SNE
+    tsne = TSNE(n_components=2, random_state=42)
+    embedded_features = tsne.fit_transform(test_features_subset)
 
-
+    # Plot and save
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(embedded_features[:, 0], embedded_features[:, 1], c=test_labels_subset, cmap='tab10', alpha=0.6)
+    plt.legend(*scatter.legend_elements(), title='Classes')
+    plt.title('t-SNE Visualization of Test Data Representations')
+    plt.savefig('test_tsne.png')
+    plt.close()
