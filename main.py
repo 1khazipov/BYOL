@@ -72,24 +72,29 @@ def main(gpu, args):
     global_step = 0
     for epoch in range(args.num_epochs):
         metrics = defaultdict(list)
+        total_loss, total_byol_loss, n = 0, 0, 0
         for step, ((x_i, x_j), _) in enumerate(train_loader):
             x_i = x_i.cuda(non_blocking=True)
             x_j = x_j.cuda(non_blocking=True)
 
-            loss = model(x_i, x_j)
+            loss, byol_loss = model(x_i, x_j)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             model.module.update_moving_average()  # update moving average of target encoder
-
-            if step % 1 == 0 and gpu == 0:
-                print(f"Step [{step}/{len(train_loader)}]:\tLoss: {loss.item()}")
-
+            
+            n += 1
+            total_loss += loss.item()
+            total_byol_loss += byol_loss
+            # if step % 1 == 0 and gpu == 0:
+            #     print(f"Step [{step}/{len(train_loader)}]:\tLoss: {loss.item()} BYOL_Loss: {byol_loss}")
             if gpu == 0:
-                writer.add_scalar("Loss/train_step", loss, global_step)
-                metrics["Loss/train"].append(loss.item())
+                writer.add_scalar("Loss/train_step", byol_loss.item(), global_step)
+                metrics["Loss/train"].append(byol_loss.item())
                 global_step += 1
+        print(f"Epoch {epoch}:\tLoss: {total_loss / n} BYOL_Loss: {total_byol_loss / n}")
 
+        
         if gpu == 0:
             # write metrics to TensorBoard
             for k, v in metrics.items():
@@ -117,7 +122,7 @@ if __name__ == "__main__":
         "--learning_rate", default=3e-4, type=float, help="Initial learning rate."
     )
     parser.add_argument(
-        "--batch_size", default=192, type=int, help="Batch size for training."
+        "--batch_size", default=64, type=int, help="Batch size for training."
     )
     parser.add_argument(
         "--num_epochs", default=100, type=int, help="Number of epochs to train for."
