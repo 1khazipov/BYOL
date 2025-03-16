@@ -215,9 +215,9 @@ class BYOL(nn.Module):
         )
 
     def forward(self, image_one, image_two):
+        # BYOL loss
         online_proj_one = self.online_encoder(image_one)
         online_proj_two = self.online_encoder(image_two)
-
         online_pred_one = self.online_predictor(online_proj_one)
         online_pred_two = self.online_predictor(online_proj_two)
 
@@ -228,6 +228,24 @@ class BYOL(nn.Module):
 
         loss_one = loss_fn(online_pred_one, target_proj_two.detach())
         loss_two = loss_fn(online_pred_two, target_proj_one.detach())
+        byol_loss = (loss_one + loss_two).mean()
 
-        loss = loss_one + loss_two
-        return loss.mean()
+        # DimCL loss
+        z_a = self.online_encoder.get_representation(image_one)  # (N, D)
+        z_b = self.online_encoder.get_representation(image_two)
+        
+        z_a = F.normalize(z_a, p=2, dim=0)  # Нормализация по батчу
+        z_b = F.normalize(z_b, p=2, dim=0)
+        
+        D = z_a.size(1)
+        z_a_t = z_a.T  # (D, N)
+        z_b_t = z_b.T  # (D, N)
+        all_keys = torch.cat([z_a_t, z_b_t], dim=0)  # (2D, N)
+        
+        similarity = torch.mm(z_a_t, all_keys.T) / 0.1  # Температура τ=0.1
+        labels = torch.arange(D, 2 * D, device=z_a.device)
+        
+        dimcl_loss = F.cross_entropy(similarity, labels)
+        total_loss = byol_loss + 0.1 * dimcl_loss  # λ=0.1
+        
+        return total_loss, byol_loss 
