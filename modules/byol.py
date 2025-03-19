@@ -246,6 +246,6 @@ class BYOL(nn.Module):
         labels = torch.arange(D, 2 * D, device=z_a.device)
         
         dimcl_loss = F.cross_entropy(similarity, labels)
-        total_loss = byol_loss + 0.1 * dimcl_loss  # λ=0.1
+        total_loss = 0.9 * byol_loss + 0.1 * dimcl_loss  # λ=0.1
         
         return total_loss, byol_loss 
