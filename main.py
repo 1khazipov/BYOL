@@ -6,13 +6,14 @@ from torchvision import models, datasets
 import numpy as np
 from collections import defaultdict
 
-from modules import BYOL
+from modules.byol import BYOL, BYOLViT
 from modules.transformations import TransformsSimCLR
 
 # distributed training
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
+from tqdm import tqdm
 
 
 def cleanup():
@@ -27,11 +28,18 @@ def main(gpu, args):
     torch.cuda.set_device(gpu)
 
     # dataset
-    train_dataset = datasets.CIFAR10(
-        args.dataset_dir,
-        download=True,
-        transform=TransformsSimCLR(size=args.image_size), # paper 224
-    )
+    if args.dataset == "cifar10":
+        train_dataset = datasets.CIFAR10(
+            args.dataset_dir,
+            download=True,
+            transform=TransformsSimCLR(size=args.image_size), # paper 224
+        )
+    else:
+        train_dataset = datasets.CIFAR100(
+            args.dataset_dir,
+            download=True,
+            transform=TransformsSimCLR(size=args.image_size), # paper 224
+        )
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         train_dataset, num_replicas=args.world_size, rank=rank
@@ -47,14 +55,13 @@ def main(gpu, args):
     )
 
     # model
-    if args.resnet_version == "resnet18":
+    if args.model_type == "resnet18":
         resnet = models.resnet18(pretrained=False)
-    elif args.resnet_version == "resnet50":
-        resnet = models.resnet50(pretrained=False)
+        model = BYOL(resnet, image_size=args.image_size, hidden_layer="avgpool", loss_type=args.loss_type)
     else:
-        raise NotImplementedError("ResNet not implemented")
+        resnet = models.vision_transformer.vit_b_16(image_size=args.image_size, weights='DEFAULT')
+        model = BYOLViT(resnet, image_size=args.image_size, hidden_layer="avgpool", loss_type=args.loss_type)
 
-    model = BYOL(resnet, image_size=args.image_size, hidden_layer="avgpool")
     model = model.cuda(gpu)
 
     # distributed data parallel
@@ -68,45 +75,98 @@ def main(gpu, args):
     if gpu == 0:
         writer = SummaryWriter()
 
-    # solver
-    global_step = 0
-    for epoch in range(args.num_epochs):
-        metrics = defaultdict(list)
-        total_loss, total_byol_loss, n = 0, 0, 0
-        for step, ((x_i, x_j), _) in enumerate(train_loader):
-            x_i = x_i.cuda(non_blocking=True)
-            x_j = x_j.cuda(non_blocking=True)
+    if args.loss_type =="dimcl_loss":
+        # solver
+        global_step = 0
+        for epoch in range(args.num_epochs):
+            metrics = defaultdict(list)
+            total_loss, total_byol_loss, n = 0, 0, 0
+            scaler = torch.amp.GradScaler("cuda")
+            for step, ((x_i, x_j), _) in tqdm(enumerate(train_loader)):
+                x_i = x_i.cuda(non_blocking=True)
+                x_j = x_j.cuda(non_blocking=True)
 
-            loss, byol_loss = model(x_i, x_j)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            model.module.update_moving_average()  # update moving average of target encoder
-            
-            n += 1
-            total_loss += loss.item()
-            total_byol_loss += byol_loss
-            # if step % 1 == 0 and gpu == 0:
-            #     print(f"Step [{step}/{len(train_loader)}]:\tLoss: {loss.item()} BYOL_Loss: {byol_loss}")
-            if gpu == 0:
-                writer.add_scalar("Loss/train_step", byol_loss.item(), global_step)
-                metrics["Loss/train"].append(byol_loss.item())
-                global_step += 1
-        print(f"Epoch {epoch}:\tLoss: {total_loss / n} BYOL_Loss: {total_byol_loss / n}")
-
-        
-        if gpu == 0:
-            # write metrics to TensorBoard
-            for k, v in metrics.items():
-                writer.add_scalar(k, np.array(v).mean(), epoch)
-
-            if epoch % args.checkpoint_epochs == 0:
+                with torch.amp.autocast("cuda"):
+                    loss, byol_loss = model(x_i, x_j, "dimcl_loss")
+                    # loss = model(x_i, x_j)
+                optimizer.zero_grad()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                model.module.update_moving_average()  # update moving average of target encoder
+                
+                n += 1
+                total_loss += loss.item()
+                total_byol_loss += byol_loss
+                # if step % 1 == 0 and gpu == 0:
+                #     print(f"Step [{step}/{len(train_loader)}]:\tLoss: {loss.item()} BYOL_Loss: {byol_loss}")
                 if gpu == 0:
-                    print(f"Saving model at epoch {epoch}")
-                    torch.save(resnet.state_dict(), f"./model-{epoch}.pt")
+                    writer.add_scalar("Loss/train_step", byol_loss.item(), global_step)
+                    metrics["Loss/train"].append(byol_loss.item())
+                    # writer.add_scalar("Loss/train_step", loss.item(), global_step)
+                    # metrics["Loss/train"].append(loss.item())
+                    global_step += 1
+            print(f"Epoch {epoch}:\tLoss: {total_loss / n} BYOL_Loss: {total_byol_loss / n}")
 
-                # let other workers wait until model is finished
-                # dist.barrier()
+            
+            if gpu == 0:
+                # write metrics to TensorBoard
+                for k, v in metrics.items():
+                    writer.add_scalar(k, np.array(v).mean(), epoch)
+
+                if epoch % args.checkpoint_epochs == 0:
+                    if gpu == 0:
+                        print(f"Saving model at epoch {epoch}")
+                        torch.save(resnet.state_dict(), f"./model-{epoch}.pt")
+
+                    # let other workers wait until model is finished
+                    # dist.barrier()
+    else:
+                # solver
+        global_step = 0
+        for epoch in range(args.num_epochs):
+            metrics = defaultdict(list)
+            total_loss, n = 0, 0
+            scaler = torch.amp.GradScaler("cuda")
+            for step, ((x_i, x_j), _) in tqdm(enumerate(train_loader)):
+                x_i = x_i.cuda(non_blocking=True)
+                x_j = x_j.cuda(non_blocking=True)
+
+                with torch.amp.autocast("cuda"):
+                    # loss, byol_loss = model(x_i, x_j)
+                    loss = model(x_i, x_j, "byol_loss")
+                optimizer.zero_grad()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                model.module.update_moving_average()  # update moving average of target encoder
+                
+                n += 1
+                total_loss += loss.item()
+                # total_byol_loss += byol_loss
+                # if step % 1 == 0 and gpu == 0:
+                #     print(f"Step [{step}/{len(train_loader)}]:\tLoss: {loss.item()} BYOL_Loss: {byol_loss}")
+                if gpu == 0:
+                    # writer.add_scalar("Loss/train_step", byol_loss.item(), global_step)
+                    # metrics["Loss/train"].append(byol_loss.item())
+                    writer.add_scalar("Loss/train_step", loss.item(), global_step)
+                    metrics["Loss/train"].append(loss.item())
+                    global_step += 1
+            print(f"Epoch {epoch}:\tLoss: {total_loss / n}")
+
+            
+            if gpu == 0:
+                # write metrics to TensorBoard
+                for k, v in metrics.items():
+                    writer.add_scalar(k, np.array(v).mean(), epoch)
+
+                if epoch % args.checkpoint_epochs == 0:
+                    if gpu == 0:
+                        print(f"Saving model at epoch {epoch}")
+                        torch.save(resnet.state_dict(), f"./model-{epoch}.pt")
+
+                    # let other workers wait until model is finished
+                    # dist.barrier()
 
     # save your improved network
     if gpu == 0:
@@ -136,6 +196,24 @@ if __name__ == "__main__":
         type=int,
         help="Number of epochs between checkpoints/summaries.",
     )
+    parser.add_argument(
+        "--loss_type",
+        default="byol_loss",
+        type=str,
+        help="byol_loss/dimcl_loss",
+    )
+    parser.add_argument(
+        "--model_type",
+        default="resnet18",
+        type=str,
+        help="resnet18/vit",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="cifar10",
+        type=str,
+        help="cifar10/cifar100",
+    )    
     parser.add_argument(
         "--dataset_dir",
         default="./datasets",
