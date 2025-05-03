@@ -81,17 +81,19 @@ python logistic_regression.py \
 *   **Output:**
     *   Prints the final linear probing accuracy to the console.
     *   Saves a t-SNE visualization plot as `test_tsne.png` in the root directory.
-    *   May save intermediate feature files (`features.p`) to speed up subsequent runs.
+    *   Saves intermediate feature files (`features.p`) to speed up subsequent runs.
 
 ## Results
 
-Experimental results, including comparison tables and t-SNE plots for different configurations, can be found in the `./results/` and `./results/` directories:
+Experimental results, including comparison tables and t-SNE plots for different configurations, can be found in the `./results/` and `./runs/` directories:
 ```bash
 tensorboard --logdir runs
 ```
 
 ## Results on CIFAR-10 plot:
+Baseline:
 ![Baseline](results/byol_resnet_mse.png)
+Best result:
 ![Best result](results/byol_vit_dimcl.png)
 
 ## Results on CIFAR-100 classification:
