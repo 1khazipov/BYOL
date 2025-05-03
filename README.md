@@ -40,7 +40,7 @@ This repository contains the code and experiments for the thesis "Improving Self
 
 This script performs the BYOL or BYOL+DimCL pre-training on the specified dataset using the chosen backbone. Distributed training is supported.
 
-**Example Command (Single GPU, ResNet-18, BYOL+DimCL on CIFAR-10):**
+**Example Command:**
 
 ```bash
 python main.py \
@@ -50,7 +50,6 @@ python main.py \
     --model_type resnet18 or vit \
     --dataset cifar10 or cifar100 \
     --learning_rate 3e-4 \
-    --dataset_dir ./datasets \
     --checkpoint_epochs 10 \
 ```
 
@@ -75,7 +74,6 @@ python logistic_regression.py \
     --batch_size 768 \
     --num_epochs 300 \
     --learning_rate 3e-3 \
-    --dataset_dir ./datasets \
 ```
 
 *   **Output:**
