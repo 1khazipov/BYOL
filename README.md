@@ -1,77 +1,121 @@
-# BYOL - Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning
-PyTorch implementation of "Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning" by J.B. Grill et al.
 
-[Link to paper](https://arxiv.org/abs/2006.07733)
+# Improving Self-Supervised Representations via Dimensional Contrastive Learning in BYOL
 
-This repository includes a practical implementation of BYOL with:
-- **Distributed Data Parallel training**
-- Benchmarks on vision datasets (CIFAR-10 / STL-10)
-- Support for PyTorch **<= 1.5.0**
+Student: Albert Khazipov \
+Group: B21-DS-01 \
+Email: a.khazipov@innopolis.university
 
-Open BYOL in Google Colab Notebook
+This repository contains the code and experiments for the thesis "Improving Self-Supervised Representations via Dimensional Contrastive Learning in BYOL". The project investigates the integration of Dimensional Contrastive Learning (DimCL) as a regularizer into the Bootstrap Your Own Latent (BYOL) self-supervised learning framework to enhance feature diversity and representation quality.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1B68Ag_oRB0-rbb9AwC20onmknxyYho4B?usp=sharing)
+## Setup
 
-## Results
-These are the top-1 accuracy of linear classifiers trained on the (frozen) representations learned by BYOL:
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/1khazipov/BYOL
+    cd BYOL
+    ```
 
-| Method  | Batch size | Image size | ResNet | Projection output dim. | Pre-training epochs | Optimizer | STL-10 | CIFAR-10
-| ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
-| BYOL + linear eval.  | 192 | 224x224 | ResNet18 | 256 | 100 | Adam | _ | **0.832** | 
-| Logistic Regression | - | - | - | - | - | - | 0.358 | 0.389 |
+2.  **Create a virtual environment (recommended):**
+    ```bash
+    conda create -n byol python=3.10.14
+    conda activate byol
+    ```
 
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+    *Note: Ensure you have a compatible version of PyTorch installed for CUDA environment.*
 
-## Installation
-```
-git clone https://github.com/spijkervet/byol --recurse-submodules -j8
-pip3 install -r requirements.txt
-python3 main.py
-```
+4.  **Download Datasets:** The scripts will attempt to download CIFAR-10/100 automatically if they are not found in the `./datasets` directory.
 
+5.  **Download Pre-trained Models:**
+    *   The pre-trained model weights used for evaluation (e.g., `model-final.pt` or `model-<epoch>.pt`) are not stored in this repository due to their size.
+    *   Download the models from the following link: `https://drive.google.com/drive/folders/1FRYR6p2vqvSdlQxeSoPWBwxxIycXdwnn?usp=drive_link`
+    *   Place the downloaded model files in the root directory of the project or specify their path using the `--model_path` argument during evaluation.
 
 ## Usage
-### Using a pre-trained model
-The following commands will train a logistic regression model on a pre-trained ResNet18, yielding a top-1 accuracy of 83.2% on CIFAR-10.
-```
-curl https://github.com/Spijkervet/BYOL/releases/download/1.0/resnet18-CIFAR10-final.pt -L -O
-rm features.p
-python3 logistic_regression.py --model_path resnet18-CIFAR10-final.pt
+
+### 1. Self-Supervised Pre-training (`main.py`)
+
+This script performs the BYOL or BYOL+DimCL pre-training on the specified dataset using the chosen backbone. Distributed training is supported.
+
+**Example Command (Single GPU, ResNet-18, BYOL+DimCL on CIFAR-10):**
+
+```bash
+python main.py \
+    --batch_size 64 \
+    --num_epochs 100 \
+    --loss_type byol_loss or dimcl_loss \
+    --model_type resnet18 or vit \
+    --dataset cifar10 or cifar100 \
+    --learning_rate 3e-4 \
+    --dataset_dir ./datasets \
+    --checkpoint_epochs 10 \
 ```
 
-### Pre-training
-To run pre-training using BYOL with the default arguments (1 node, 1 GPU), use:
-```
-python3 main.py
+*   **Output:** The script will save model checkpoints (e.g., `model-<epoch>.pt`) and TensorBoard logs. The final model will be saved as `model-final.pt`.
+
+### 2. Linear Evaluation and t-SNE Visualization (`logistic_regression.py`)
+
+This script evaluates a pre-trained encoder by training a linear classifier on top of its frozen features and generates a t-SNE visualization.
+
+**Example Command:**
+
+IMPORTANT: If you used the classification before, you should delete `features.p`:
+```bash
+rm features_<algorithm_name>.p
 ```
 
-Which is equivalent to:
+```bash
+python logistic_regression.py \
+    --model_path ./model-final.pt \
+    --model_type resnet18 or vit \
+    --dataset cifar10 or cifar100 \
+    --batch_size 768 \
+    --num_epochs 300 \
+    --learning_rate 3e-3 \
+    --dataset_dir ./datasets \
 ```
-python3 main.py --nodes 1 --gpus 1
-```
-The pre-trained models are saved every *n* epochs in \*.pt files, the final model being `model-final.pt`
 
-### Finetuning
-Finetuning a model ('linear evaluation') on top of the pre-trained, frozen ResNet model can be done using:
-```
-python3 logistic_regression.py --model_path=./model_final.pt
+*   **Output:**
+    *   Prints the final linear probing accuracy to the console.
+    *   Saves a t-SNE visualization plot as `test_tsne.png` in the root directory.
+    *   May save intermediate feature files (`features.p`) to speed up subsequent runs.
+
+## Results
+
+Experimental results, including comparison tables and t-SNE plots for different configurations, can be found in the `./results/` and `./results/` directories:
+```bash
+tensorboard --logdir runs
 ```
 
-With `model_final.pt` being file containing the pre-trained network from the pre-training stage.
+## Results on CIFAR-10 plot:
+![Baseline](results/byol_resnet_mse.png)
+![Best result](results/byol_vit_dimcl.png)
 
-## Multi-GPU / Multi-node training
-Use `python3 main.py --gpus 2` to train e.g. on 2 GPU's, and `python3 main.py --gpus 2 --nodes 2` to train with 2 GPU's using 2 nodes.
-See https://yangkky.github.io/2019/07/08/distributed-pytorch-tutorial.html for an excellent explanation.
+## Results on CIFAR-100 classification:
+| Model      | Loss Function   | Dataset  | Accuracy  |
+|------------|-----------------|----------|----------:|
+| ResNet-18  | BYOL Loss       | CIFAR-10 |   82.9%   |
+| ResNet-18  | DimCL+BYOL Loss | CIFAR-10 |   82.1%   |
+| ViT-B/16   | BYOL Loss       | CIFAR-10 |   85.4%   |
+| **ViT-B/16** | **DimCL+BYOL Loss** | **CIFAR-10** | **93.4%** |
 
-## Arguments
+## Project Structure
+
 ```
---image_size, default=224, "Image size"
---learning_rate, default=3e-4, "Initial learning rate."
---batch_size, default=42, "Batch size for training."
---num_epochs, default=100, "Number of epochs to train for."
---checkpoint_epochs, default=10, "Number of epochs between checkpoints/summaries."
---dataset_dir, default="./datasets", "Directory where dataset is stored.",
---num_workers, default=8, "Number of data loading workers (caution with nodes!)"
---nodes, default=1, "Number of nodes"
---gpus, default=1, "number of gpus per node"
---nr, default=0, "ranking within the nodes"
+.
+├── main.py                 # Main script for self-supervised pre-training
+├── logistic_regression.py  # Script for linear evaluation and t-SNE visualization
+├── process_features.py     # Helper functions for feature processing
+├── modules/                  # Core algorithm modules
+│   ├── __init__.py
+│   ├── byol.py             # BYOL and BYOL+DimCL implementation
+│   └── transformations/
+│       ├── __init__.py
+│       └── simclr.py       # Augmentations used by BYOL
+├── results/                # Directory containing experiment results (e.g., t-SNE plots, logs)
+├── requirements.txt        # Project dependencies
+└── README.md               # This file
 ```
