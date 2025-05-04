@@ -115,7 +115,7 @@ Best result:
 │   └── transformations/
 │       ├── __init__.py
 │       └── simclr.py       # Augmentations used by BYOL
-├── results/                # Directory containing experiment results (e.g., t-SNE plots, logs)
+├── results/                # Directory containing experiment results
 ├── requirements.txt        # Project dependencies
 └── README.md               # This file
 ```
