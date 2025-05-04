@@ -98,7 +98,7 @@ Best result:
 | Model      | Loss Function   | Dataset  | Accuracy  |
 |------------|-----------------|----------|----------:|
 | ResNet-18  | BYOL Loss       | CIFAR-10 |   82.9%   |
-| ResNet-18  | DimCL+BYOL Loss | CIFAR-10 |   82.1%   |
+| ResNet-18  | DimCL+BYOL Loss | CIFAR-10 |   83.3%   |
 | ViT-B/16   | BYOL Loss       | CIFAR-10 |   85.4%   |
 | **ViT-B/16** | **DimCL+BYOL Loss** | **CIFAR-10** | **93.4%** |
 
